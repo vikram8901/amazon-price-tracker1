@@ -1,62 +1,65 @@
-import requests #pip install requests
-from bs4 import BeautifulSoup #pip install bs4
-import pygame #pip install  pygame
-import os
+import requests
+from bs4 import BeautifulSoup
 import time
 import json
-from colored import fg, attr
+from plyer import notification
 
-#Opening The Settings.json file
-with open('settings.json','r') as file:
+with open("settings.json", "r") as file:
     settings = json.load(file)
 
-# To play a ding if the product is in our budget 
-pygame.mixer.init()
-pygame.mixer.music.load(settings["remind-sound-path"])
+URL = settings["url"]
+TARGET_PRICE = settings["budget"]
+CHECK_INTERVAL = settings["remind-time"]
 
-# Set your budjet
-my_price = settings['budget']
+HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept-Language": "en-US,en;q=0.9"
+}
 
-# initializing Currency Symbols to substract it from our string
-currency_symbols = ['€', '	£', '$', "¥", "HK$", "₹", "¥", "," ] 
+def get_product_details():
+    try:
+        response = requests.get(URL, headers=HEADERS, timeout=10)
+        response.raise_for_status()
 
-# the URL we are going to use
-URL = settings['url']
+        soup = BeautifulSoup(response.text, "html.parser")
 
-# Google "My User Agent" And Replace It
-headers = {"User-Agent": 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.75 Safari/537.36'} 
+        title = soup.select_one("#productTitle")
+        price = soup.select_one(".a-price-whole")
 
-#Checking the price
-def checking_price():
-    page = requests.get(URL, headers=headers)
-    soup  = BeautifulSoup(page.text, 'html.parser')
+        if not title or not price:
+            print("Could not fetch product details.")
+            return None, None
 
-    #Finding the elements
-    product_title = soup.find('span', id='productTitle').getText()
-    product_price = soup.find('span', class_ = "a-offscreen").getText()
+        title = title.get_text(strip=True)
+        price = float(price.get_text(strip=True).replace(",", ""))
 
-    # using replace() to remove currency symbols
-    for i in currency_symbols : 
-        product_price = product_price.replace(i, '')
+        return title, price
 
-    #Converting the string to integer
-    product_price = int(float(product_price))
+    except Exception as e:
+        print(f"Error: {e}")
+        return None, None
 
-    ProductTitleStrip = product_title.strip()
-    print(f"{fg('green_1')}The Product Name is:{attr('reset')}{fg('dark_slate_gray_2')} {ProductTitleStrip}{attr('reset')}")
-    print(f"{fg('green_1')}The Price is:{attr('reset')}{fg('orange_red_1')} {product_price}{attr('reset')}")
+def send_notification(title, price):
+    notification.notify(
+        title="Amazon Price Drop Alert!",
+        message=f"{title}\nCurrent Price: ₹{price}",
+        timeout=10
+    )
 
+def main():
+    while True:
+        title, price = get_product_details()
 
+        if title and price:
+            print(f"\nProduct: {title}")
+            print(f"Current Price: ₹{price}")
 
-    # checking the price
-    if(product_price<my_price):
-        pygame.mixer.music.play()
-        print(f"{fg('medium_orchid_1b')}You Can Buy This Now!{attr('reset')}")
-        time.sleep(3) # audio will be played first then exit the program. This time for audio playing.
-        exit()
-    else:
-        print(f"{fg('red_1')}The Price Is Too High!{attr('reset')}")
+            if price <= TARGET_PRICE:
+                send_notification(title, price)
+                print("Price dropped! Notification sent.")
+                break
 
-while True:
-    checking_price()
-    time.sleep(settings['remind-time']) #It is set to run the program once in an hour! You can change by changing the value in seconds!
+        time.sleep(CHECK_INTERVAL)
+
+if __name__ == "__main__":
+    main()
